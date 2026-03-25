@@ -1,0 +1,30 @@
+{
+  "name": "swedbankjsonts",
+  "version": "1.0.0",
+  "description": "Unofficial TypeScript API client for Swedbank and Sparbanken mobile apps (powered by Bun)",
+  "module": "src/index.ts",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "example:bankid": "bun run examples/bankid-demo.ts",
+    "example:security-token": "bun run examples/security-token-demo.ts",
+    "example:quick-balance": "bun run examples/quick-balance-demo.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "keywords": [
+    "swedbank",
+    "sparbanken",
+    "bankid",
+    "banking",
+    "sweden",
+    "bun",
+    "typescript"
+  ],
+  "license": "MIT"
+}

@@ -3,95 +3,213 @@
 > All trademarks and brand names are the property of their respective owners.
 > Use of the information and resources provided in this repository is for educational and interoperability purposes only and may be subject to legal or policy restrictions.
 
-# SwedbankJson
+# SwedbankJsonTS
 
-Unofficial API client for the Swedbank's and Sparbanken's mobile apps in Sweden.
+Unofficial **TypeScript** API client for Swedbank's and Sparbanken's mobile apps in Sweden, powered by **[Bun](https://bun.sh)**.
 
 * Overview of your bank accounts, loans, debit and credit cards
-* List account transactions
+* List account transactions with pagination
 * Transfer money between accounts
-* Sign in with different profiles, ideal for Swedbank Företag app users
-* Activate, deactivate, and view quick balance (aka. snabbsaldo)
-* No authentication required to view quick balance, ideal for unattended monitoring and automation
+* Sign in with different profiles (ideal for Swedbank Företag app users)
+* Activate, deactivate, and view quick balance (snabbsaldo)
+* No authentication required to view quick balance — ideal for automation
 
 **Authentication methods**
 
-* Mobile BankID
-* Security token with one time code
+* Mobile BankID (QR code or same-device deeplink)
+* Security token (one-time password or challenge/response)
+* Unauthenticated (quick balance only)
 
 ## Security
 
-All SwedbankJson API client traffic is TLS encrypted and strictly between your device/server that runs the code and Swedbank's servers. The client can not and will not send any
-information to any third party for any reason. 
+All API traffic is TLS-encrypted and strictly between your device/server and Swedbank's servers. The client does not send any information to third parties.
 
-## Installation and documentation
+## Requirements
 
-* [Introduction and installation](INSTALL.md)
-* [Authentication methods](docs/authentication.md)
-* [Reference](docs/reference.md)
+* [Bun](https://bun.sh) v1.0 or later
 
-## Code example
+## Installation
 
-List bank statements with authentication method [security token with one time code](docs/authentication.md#security-token-with-one-time-code).
+```bash
+# Clone the repository
+git clone https://github.com/filipnyquist/SwedbankJsonTS.git
+cd SwedbankJsonTS
 
-```php
-$auth     = new SwedbankJson\Auth\SecurityToken($appData, $username, $challengeResponse);
-$bankConn = new SwedbankJson\SwedbankJson($auth);
-
-$accountInfo = $bankConn->accountDetails();
-$bankConn->terminate(); // Sign out
-
-echo 'Bank statements
-<pre>';
-print_r($accountInfo);
+# Install dependencies (only dev deps: TypeScript types)
+bun install
 ```
 
-All API endpoints do not require to sign in. One example is quick balance.
+## Quick Start
 
-```php
-$auth     = new SwedbankJson\Auth\UnAuth($appData);
-$bankConn = new SwedbankJson\SwedbankJson($auth);
+### Mobile BankID (QR code)
 
-$quickBalance = $bankConn->quickBalance($subID);
+```typescript
+import { AppData, MobileBankID, SwedbankJson } from "./src/index.ts";
 
-echo 'Quick balance
-<pre>';
-print_r($quickBalance);
+const appData = new AppData("swedbank", "./AppData.json");
+const auth = new MobileBankID(appData);
+await auth.init();
+
+// Start the auth flow
+await auth.initAuth();
+
+// Display QR code (refresh every 2 s in your UI)
+const qrImage = await auth.getChallengeImage();
+// qrImage is a binary string – convert to base64 for display:
+// const b64 = Buffer.from(qrImage, "binary").toString("base64");
+// <img src={`data:image/png;base64,${b64}`} />
+
+// Poll until the user approves in the BankID app
+while (!await auth.verify()) {
+  await Bun.sleep(2000);
+  const refreshedQr = await auth.getChallengeImage(); // refresh QR
+}
+
+await auth.login();
+
+// Use the API
+const bank = new SwedbankJson(auth);
+const accounts = await bank.accountList();
+console.log(accounts);
+
+await bank.terminate(); // Sign out
+```
+
+### Mobile BankID (same-device deeplink)
+
+```typescript
+import { AppData, MobileBankID, SwedbankJson } from "./src/index.ts";
+
+const appData = new AppData("swedbank", "./AppData.json");
+const auth = new MobileBankID(appData);
+await auth.init();
+auth.setSameDevice(true);
+
+await auth.initAuth();
+
+// Open this URL to launch the BankID app on the same device
+const bankIdUrl = auth.getBankIdAppUrl("https://yourapp.example.com/callback");
+console.log("Open in browser:", bankIdUrl);
+
+// Poll for completion
+while (!await auth.verify()) {
+  await Bun.sleep(2000);
+}
+
+await auth.login();
+const bank = new SwedbankJson(auth);
+```
+
+### Security Token (OTP)
+
+```typescript
+import { AppData, SecurityToken, SwedbankJson } from "./src/index.ts";
+
+const appData = new AppData("swedbank", "./AppData.json");
+const auth = new SecurityToken(appData, "198903060000" /* personnummer */);
+await auth.init();
+
+await auth.getChallenge(); // Determines token type
+
+const code = "12345678"; // Code from token device
+await auth.login(code);
+
+const bank = new SwedbankJson(auth);
+const accounts = await bank.accountList();
+console.log(accounts);
+await bank.terminate();
+```
+
+### Quick Balance (no authentication)
+
+```typescript
+import { AppData, UnAuth, SwedbankJson } from "./src/index.ts";
+
+const appData = new AppData("swedbank", "./AppData.json");
+const auth = new UnAuth(appData);
+await auth.init();
+await auth.login();
+
+const bank = new SwedbankJson(auth);
+const balance = await bank.quickBalance("your-subscription-id");
+console.log(balance);
+```
+
+## Demo Examples
+
+Run the included demo scripts (they will prompt for input):
+
+```bash
+# Mobile BankID demo (QR code by default)
+bun run example:bankid
+
+# Mobile BankID – same-device mode
+BANKID_MODE=device bun run example:bankid
+
+# Security token demo
+bun run example:security-token
+
+# Quick Balance demo (requires a saved subscription ID)
+SUBSCRIPTION_ID=<your-id> bun run example:quick-balance
+```
+
+## API Reference
+
+### `AppData`
+
+| Constructor parameter | Type       | Default                         | Description                         |
+|-----------------------|------------|---------------------------------|-------------------------------------|
+| `bankAppId`           | `BankAppId`| –                               | `'swedbank'`, `'sparbanken'`, `'swedbank_foretag'`, `'sparbanken_foretag'` |
+| `cacheFilePath`       | `string`   | –                               | Path to local cache file. `''` to disable. |
+| `cacheTimeoutMinutes` | `number`   | `1440`                          | Cache TTL in minutes. `0` = never expire. |
+| `remoteDownload`      | `string`   | GitHub sbj-resources URL        | URL to fetch AppData from. `''` to disable. |
+
+### `SwedbankJson`
+
+| Method | Description |
+|--------|-------------|
+| `profileList()` | List available user profiles |
+| `accountList(profileID?)` | List all accounts (transaction, loan, savings, card) |
+| `accountDetails(accountID?, perPage?, page?)` | Account details and bank statements |
+| `transactionDetails(detailsTransactionID)` | Detailed info for a single transaction |
+| `portfolioList(profileID?)` | List investment savings accounts |
+| `reminders()` | Notification counts (rejected payments, e-invoices, etc.) |
+| `transferBaseInfo()` | Info needed to create a payment |
+| `transferRegisterPayment(amount, from, to, ...)` | Register a transfer (not yet executed) |
+| `transferListRegistered()` | List unconfirmed transfers |
+| `transferListConfirmed()` | List confirmed/scheduled transfers |
+| `transferDeletePayment(transferId)` | Cancel a transfer |
+| `transferConfirmPayments()` | Execute all registered transfers |
+| `quickBalanceAccounts(profileID?)` | List accounts available for Quick Balance |
+| `quickBalanceSubscription(accountSubID)` | Subscribe an account to Quick Balance |
+| `quickBalance(subscriptionId)` | Fetch balance without authentication |
+| `quickBalanceUnsubscription(subscriptionId, profileID?)` | Unsubscribe from Quick Balance |
+| `terminate()` | Sign out |
+
+## Bank Types
+
+| Value | Description |
+|-------|-------------|
+| `swedbank` | Swedbank personal |
+| `sparbanken` | Sparbanken personal |
+| `swedbank_foretag` | Swedbank corporate |
+| `sparbanken_foretag` | Sparbanken corporate |
+
+## Type Check
+
+```bash
+bun run typecheck
 ```
 
 ## FAQ
 
-### Can I install SwedbankJson without Composer?
+### Is this compatible with Swedbank's non-Swedish apps?
 
-No, it's either recommended or supported. It's much easier to use Composer than manually download all the
-dependencies. [Read more about installing with Composer](docs/composer.md).
+No. The API is specific to the Swedish market.
 
-### Is SwedbankJson compatible with Swedbank's non-swedish apps?
+### Why not use the official Open Banking API?
 
-To the best of my knowledge, the API utilized by SwedbankJson is specific to the Swedish market and is not used by banking apps outside of Sweden.
-
-### Why use the mobile apps API instead of the official Open Banking API?
-
-In short, if you have access to the Swedish mobile banking apps for certain major banks, this library can be used immediately to, for example, log in and fetch real transaction
-data (i.e., production access).
-
-To obtain similar production access through the official Open Banking API, the following are generally required:
-
-1. Hold a PISP, AISP, or equivalent license from a local financial regulatory authority such
-   as [Finansinspektionen](https://www.fi.se/sv/betalningar/andra-betaltjanstdirektivet-psd-2/). Applying for such a license may involve fees.
-2. Valid QSEAL and QWAC certificates.
-3. Apply for and receive approval for production access from the bank.
-
-In summary, getting started with the official Open Banking API typically involves a lengthy, complex, and costly process.
-
-## Support and Feedback
-
-This project utilize GitHub Issues for both support and feedback. Before creating a new issue, please do the following:
-
-1. Check the documentation (see links under [Installation and documentation](#installation-and-documentation)).
-2. [Search in issues](https://github.com/walle89/SwedbankJson/issues).
-
-If you didn't find your answer, you are welcome to [create a new issue](https://github.com/walle89/SwedbankJson/issues).
+Getting production access to the official Open Banking API requires a regulatory license (e.g. from Finansinspektionen), QSEAL/QWAC certificates, and bank approval — a lengthy and costly process. This library works immediately if you have access to the Swedish mobile apps.
 
 ## License
 
