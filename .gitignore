@@ -9,3 +9,6 @@ vendor/
 tests/
 *agrant*
 ansible*
+
+### Bun / Node.js ###
+node_modules/
